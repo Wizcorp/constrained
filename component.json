@@ -1,0 +1,12 @@
+{
+  "name": "constrained",
+  "repo": "Wizcorp/constrained",
+  "version": "0.1.1",
+  "description": "Finds and assign a feasible solution to a system of numerical constraints linking javascript object properties",
+  "scripts": [
+    "index.js"
+  ],
+  "dependencies": {
+    "slightlyoff/cassowary.js": "0.0.2"
+  }
+}

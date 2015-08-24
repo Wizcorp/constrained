@@ -1,0 +1,46 @@
+{
+  "name": "constrained",
+  "version": "0.1.1",
+  "description": "Finds and assign a feasible solution to a system of numerical constraints linking javascript object properties",
+  "main": "index.js",
+  "scripts": {
+    "build": "jshint src && browserify -t uglifyify src/index.js -o build/constrained.min.js && browserify src/index.js -o build/constrained.js",
+    "test": "jshint src"
+  },
+  "devDependencies": {
+    "jshint": "~2.8.0",
+    "uglifyify": "~3.0.1",
+    "browserify": "~11.0.0"
+  },
+  "dependencies": {
+    "cassowary": "0.0.2"
+  },
+  "author": "bchevalier",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Wizcorp/constrained.git"
+  },
+  "keywords": [
+    "feasible",
+    "constraint",
+    "constrained",
+    "solution",
+    "equation",
+    "equality",
+    "inequality",
+    "expression",
+    "simplex",
+    "cplex",
+    "solver",
+    "primal",
+    "dual",
+    "property",
+    "properties"
+
+  ],
+  "bugs": {
+    "url": "https://github.com/Wizcorp/constrained/issues"
+  },
+  "homepage": "https://github.com/Wizcorp/constrained"
+}
