@@ -41,7 +41,7 @@ function System() {
 	// when parsing an expression
 	var self = this;
 	this._onParameterMissing = function (name) {
-		self.addVariable(name, { x: 0 }, 'x');
+		return self.addVariable(name, { x: 0 }, 'x').getVariable(name);
 	};
 }
 module.exports = System;
@@ -222,4 +222,12 @@ System.prototype.log = function () {
 	}
 
 	console.log('objective value =', this.z);
+};
+
+System.prototype.getValue = function (name) {
+	return this._parameters[name]._value;
+};
+
+System.prototype.getObjectiveValue = function () {
+	return this.z;
 };

@@ -33,7 +33,7 @@ mySystem.log(); // x + y = 100
 console.log('(x, y) = (', myObject1.a, ',', myObject1.b, ')');
 ```
 
-**To change a constant value**
+**To change a constant's value**:
 ``` javascript
 // Changing the value of the property associated with c
 myObject2.c = 25;
@@ -68,14 +68,7 @@ console.log('(x, y) = (', myObject1.a, ',', myObject1.b, ')');
 
 **Possibility to chain function calls**:
 ``` javascript
-var myObject1 = { x: 0 };
-var myObject2 = { x: 0 };
-var myObject3 = { x: 0 };
-
 var mySystem = new Cst.System()
-	.addVariable('x1', myObject1, 'x')
-	.addVariable('x2', myObject2, 'x')
-	.addVariable('x3', myObject3, 'x')
 	.addConstraint('- x1 - x2 + 2 * x3 <= -3')
 	.addConstraint('- 4 * x1 - 2 * x2 + x3 <= -4')
 	.addConstraint('x1 + x2 - 4 * x3 <= 2')
@@ -86,6 +79,14 @@ var mySystem = new Cst.System()
 	.resolve();
 
 mySystem.log();
+
+// Fetching variable values
+var x1 = mySystem.getValue('x1');
+var x2 = mySystem.getValue('x2');
+var x3 = mySystem.getValue('x3');
+var z  = mySystem.getObjectiveValue();
+
+console.log('(x1, x2, x3, z) = (', x1, ',', x2, ',', x3, ',', z, ')');
 ```
 
 **Possibility to use the function API for defining systems (for improved performance)**:
@@ -111,13 +112,53 @@ var myConstraint5 = Cst.greaterThan(myVariable2, 0);
 var myConstraint6 = Cst.greaterThan(myVariable3, 0);
 
 mySystem
-	.addConstraint(myConstraint1);
-	.addConstraint(myConstraint2);
-	.addConstraint(myConstraint3);
-	.addConstraint(myConstraint4);
-	.addConstraint(myConstraint5);
-	.addConstraint(myConstraint6);
-	.maximize(objective);
+	.addConstraint(myConstraint1)
+	.addConstraint(myConstraint2)
+	.addConstraint(myConstraint3)
+	.addConstraint(myConstraint4)
+	.addConstraint(myConstraint5)
+	.addConstraint(myConstraint6)
+	.maximize(objective)
 	.resolve();
-	.log();
+
+mySystem.log();
 ```
+
+**To add callbacks on variable or solution changes**:
+``` javascript
+var mySquare = { width: 0, height: 0, area: 0 };
+var myPerimeter = { length: 10 };
+
+// Instanciation of the system
+var mySystem = new Cst.System()
+	.addVariable('w', mySquare, 'width')
+	.addVariable('h', mySquare, 'height')
+	.addConstant('p', myPerimeter, 'length')
+	.addConstraint('w = h')
+	.addConstraint('w + h = p');
+
+mySystem.getVariable('w').onChange(function(params, newValue, oldValue) {
+	console.log('Width changed from', oldValue, 'to', newValue)	
+});
+
+mySystem.getVariable('h').onChange(function(params, newValue, oldValue) {
+	console.log('Height changed from', oldValue, 'to', newValue)	
+});
+
+mySystem.onNewSolution(function(theSquare) {
+	theSquare.area = theSquare.width * theSquare.height;
+	console.log('New area is', theSquare.area);
+}, mySquare);
+
+// Solving the system to obtain a feasible solution
+mySystem.resolve();
+
+// Changing the value of the property associated with c
+myPerimeter.length = 20;
+
+// Solving the system to obtain a new feasible solution
+// that respect the new constant parameter
+mySystem.resolve();
+```
+
+**Note:** Do not hesitate to post issues to suggest improvements

@@ -78,7 +78,7 @@ function System() {
 	// when parsing an expression
 	var self = this;
 	this._onParameterMissing = function (name) {
-		self.addVariable(name, { x: 0 }, 'x');
+		return self.addVariable(name, { x: 0 }, 'x').getVariable(name);
 	};
 }
 module.exports = System;
@@ -261,6 +261,13 @@ System.prototype.log = function () {
 	console.log('objective value =', this.z);
 };
 
+System.prototype.getValue = function (name) {
+	return this._parameters[name]._value;
+};
+
+System.prototype.getObjectiveValue = function () {
+	return this.z;
+};
 },{"./operators.js":5,"./parser.js":6,"./primitives.js":7,"cassowary":1}],4:[function(require,module,exports){
 (function (global){
 var primitives = require('./primitives.js');
@@ -486,47 +493,6 @@ module.exports = {
 	GreaterOrEqual: GreaterOrEqual,
 	Equality:       Equality
 };
-
-
-// Constraint.prototype.getConstants = function () {
-// 	var constants = [];
-
-// 	// TODO: handle multiple appearance of a single constant
-// 	var stack = [this._expression1, this._expression2];
-// 	while (stack.length !== 0) {
-// 		var expression = stack.pop();
-// 		if (expression._left === null) {
-// 			if (expression instanceof Constant) {
-// 				constants.push(expression);
-// 			}
-// 		} else {
-// 			stack.push(expression._left);
-// 			stack.push(expression._right);
-// 		}
-// 	}
-
-// 	return constants;
-// };
-
-// Constraint.prototype.getVariables = function () {
-// 	var variables = [];
-
-// 	// TODO: handle multiple appearance of a single variable
-// 	var stack = [this._expression1, this._expression2];
-// 	while (stack.length !== 0) {
-// 		var expression = stack.pop();
-// 		if (expression._left === null) {
-// 			if (expression instanceof Variable) {
-// 				variables.push(expression);
-// 			}
-// 		} else {
-// 			stack.push(expression._left);
-// 			stack.push(expression._right);
-// 		}
-// 	}
-
-// 	return variables;
-// };
 },{"./Expression.js":2,"cassowary":1}],6:[function(require,module,exports){
 var systemOperators  = require('./operators.js');
 var systemPrimitives = require('./primitives.js');
@@ -744,7 +710,7 @@ Parser.prototype.parseNumber = function () {
 	if (t.str[0] === '-') {
 		res   = '-';
 		t.str = t.str.substring(1);
-		// t.removeWhiteSpace();
+		t.removeWhiteSpace();
 	}
 
 	if (t.str === '') throw new Error('End of line before number.');
@@ -910,7 +876,7 @@ Parser.prototype.parseVariable = function () {
  */
 Parser.prototype.getNextObject = function () {
 	var t = this;
-	// t.removeWhiteSpace();
+	t.removeWhiteSpace();
 
 	if (t.str === '') return null;
 
@@ -977,7 +943,7 @@ Parser.prototype.getNextObject = function () {
  */
 Parser.prototype.getNextOperator = function () {
 	var t = this;
-	// t.removeWhiteSpace();
+	t.removeWhiteSpace();
 
 	// check end of stream
 	if (t.str === '') return null;
@@ -1009,8 +975,6 @@ Parser.prototype.getNextOperator = function () {
  * next token is an operator in the list
  */
 Parser.prototype.parseExpression = function () {
-	this.removeWhiteSpace();
-
 	// get all tokens
 	var operator;
 	var objects   = [];
@@ -1152,6 +1116,12 @@ Variable.prototype.refresh = function () {
 	}
 
 	return false;
+};
+
+Variable.prototype.onChange = function (onChange, onChangeParams) {
+	this._onChange       = onChange;
+	this._onChangeParams = onChangeParams;
+	return this;
 };
 
 module.exports = {

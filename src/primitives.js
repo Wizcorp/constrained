@@ -101,6 +101,12 @@ Variable.prototype.refresh = function () {
 	return false;
 };
 
+Variable.prototype.onChange = function (onChange, onChangeParams) {
+	this._onChange       = onChange;
+	this._onChangeParams = onChangeParams;
+	return this;
+};
+
 module.exports = {
 	Numeral:  Numeral,
 	Constant: Constant,

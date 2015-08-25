@@ -214,7 +214,7 @@ Parser.prototype.parseNumber = function () {
 	if (t.str[0] === '-') {
 		res   = '-';
 		t.str = t.str.substring(1);
-		// t.removeWhiteSpace();
+		t.removeWhiteSpace();
 	}
 
 	if (t.str === '') throw new Error('End of line before number.');
@@ -380,7 +380,7 @@ Parser.prototype.parseVariable = function () {
  */
 Parser.prototype.getNextObject = function () {
 	var t = this;
-	// t.removeWhiteSpace();
+	t.removeWhiteSpace();
 
 	if (t.str === '') return null;
 
@@ -447,7 +447,7 @@ Parser.prototype.getNextObject = function () {
  */
 Parser.prototype.getNextOperator = function () {
 	var t = this;
-	// t.removeWhiteSpace();
+	t.removeWhiteSpace();
 
 	// check end of stream
 	if (t.str === '') return null;
@@ -479,8 +479,6 @@ Parser.prototype.getNextOperator = function () {
  * next token is an operator in the list
  */
 Parser.prototype.parseExpression = function () {
-	this.removeWhiteSpace();
-
 	// get all tokens
 	var operator;
 	var objects   = [];
