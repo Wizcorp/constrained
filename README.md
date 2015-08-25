@@ -153,7 +153,7 @@ mySystem.onNewSolution(function(theSquare) {
 // Solving the system to obtain a feasible solution
 mySystem.resolve();
 
-// Changing the value of the property associated with c
+// Changing the value of the perimeter
 myPerimeter.length = 20;
 
 // Solving the system to obtain a new feasible solution
