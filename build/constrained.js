@@ -21,23 +21,11 @@ var l=this.rows.get(this._objective),m=b.strength.symbolicWeight.value*b.weight;
 );
 
 },{}],2:[function(require,module,exports){
-(function (global){
-var cassowary = require('cassowary');
-
-/**
- * CONSTRAINED Module
- * Binds Cassowary variables to object properties so that changes in solution to a constraint problem
- * are easily assigned to those properties.
- *
- * @author Brice Chevalier
- *
- */
-
-// *- TOGO WHEN SOLVER FIXED -*
 function Expression() {
 	this._left  = null;
 	this._right = null;
 }
+module.exports = Expression;
 
 Expression.prototype.addExpressions = function (left, right) {
 	this._left  = left;
@@ -46,6 +34,314 @@ Expression.prototype.addExpressions = function (left, right) {
 
 // Overridable method
 Expression.prototype.construct = function () {};
+},{}],3:[function(require,module,exports){
+var cassowary       = require('cassowary');
+var primitives      = require('./primitives.js');
+var operators       = require('./operators.js');
+var parseExpression = require('./parser.js');
+
+var Numeral  = primitives.Numeral;
+var Constant = primitives.Constant;
+var Variable = primitives.Variable;
+
+var Equality       = operators.Equality;
+var Multiplication = operators.Multiplication;
+
+function System() {
+	if ((this instanceof System) === false) {
+		return new System();
+	}
+
+	this._solver = new cassowary.SimplexSolver();
+	this._solver.autoSolve = false;
+
+	this._variables   = [];
+	this._constants   = [];
+	this._constraints = {};
+	this._parameters  = {};
+
+	// Callback and its parameters
+	// Yes it is possible to pass the parameters of the callback
+	// to allow the user to avoid keeping closures around (closures keep objects in memory!)
+	this._onNewSolution       = null;
+	this._onNewSolutionParams = null;
+
+	this._forceResolving = true;
+
+	// Optimization parameters
+	this.z = 0;
+	this._objectiveVariable = null;
+	this._optimization = false;
+	this._minimization = true;
+
+	// Callback function when a parameter is missing
+	// when parsing an expression
+	var self = this;
+	this._onParameterMissing = function (name) {
+		self.addVariable(name, { x: 0 }, 'x');
+	};
+}
+module.exports = System;
+
+System.prototype.onNewSolution = function (onNewSolution, onNewSolutionParams) {
+	this._onNewSolution       = onNewSolution;
+	this._onNewSolutionParams = onNewSolutionParams;
+	return this;
+};
+
+System.prototype._optimize = function (expression) {
+	if (expression instanceof Variable === true) {
+		this._objectiveVariable = expression;
+		this._solver.optimize(expression._variable);
+	} else {
+		this._objectiveVariable = new Variable('z', { z: 0 }, 'z');
+		this.addConstraint(new Equality(this._objectiveVariable, expression));
+		this._solver.optimize(this._objectiveVariable._variable);
+	}
+
+	this._forceResolving = true;
+	this._optimization   = true;
+};
+
+System.prototype.minimize = function (expression) {
+	if (typeof(expression) === 'string') {
+		expression = parseExpression(expression, this._parameters, this._onParameterMissing);
+	}
+
+	this._optimize(expression);
+	this._minimization = true;
+	return this;
+};
+
+System.prototype.maximize = function (expression) {
+	if (typeof(expression) === 'string') {
+		expression = parseExpression(expression, this._parameters, this._onParameterMissing);
+	}
+
+	this._optimize(new Multiplication(expression, new Numeral(-1)));
+	this._minimization = false;
+	return this;
+};
+
+System.prototype.addVariable = function (name, object, property) {
+	var variable = new Variable(name, object, property);
+	this._variables.push(variable);
+	this._parameters[name] = variable;
+	return this;
+};
+
+System.prototype.addConstant = function (name, object, property) {
+	var constant = new Constant(name, object, property);
+	this._constants.push(constant);
+	this._parameters[name] = constant;
+	return this;
+};
+
+System.prototype.getVariable = function (name) {
+	for (var v = 0; v < this._variables.length; v += 1) {
+		if (this._variables[v]._name === name) {
+			return this._variables[v];
+		}
+	}
+};
+
+System.prototype.addConstraint = function (constraint) {
+	if (typeof(constraint) === 'string') {
+		constraint = parseExpression(constraint, this._parameters, this._onParameterMissing);
+	}
+
+	if (this._constraints[constraint._id] !== undefined) {
+		console.warn('[System.addConstraint] Constraint already present in the system:', constraint);
+		return;
+	}
+
+	this._solver.addConstraint(constraint.construct());
+	this._constraints[constraint._id] = constraint;
+
+	this._forceResolving = true;
+	return this;
+};
+
+System.prototype.removeConstraint = function (constraint) {
+	if (this._constraints[constraint._id] === undefined) {
+		console.warn('[System.removeConstraint] Constraint not present in the system:', constraint);
+		return;
+	}
+
+	constraint._unregisterFromPrimitives();
+	this._solver.removeConstraint(constraint._constraint);
+	delete this._constraints[constraint._id];
+
+	this._forceResolving = true;
+	return this;
+};
+
+System.prototype.resolve = function (slacking) {
+	var c0, c1, constraint;
+
+	var systemIsSameSameButDifferent = this._forceResolving;
+	this._forceResolving = false;
+
+	// Checking whether a constant has changed
+	var constraintsToUpdate = null;
+	for (c0 = 0; c0 < this._constants.length; c0 += 1) {
+		var constant = this._constants[c0];
+		if (constant.refresh()) {
+			// The value of the constant has changed
+
+			// At least one constraint will be updated
+			if (constraintsToUpdate === null) {
+				constraintsToUpdate = {};
+			}
+
+			// Updating all the constraints containing the constant
+			var constraints = constant._constraints;
+			for (c1 = 0; c1 < constraints.length; c1 += 1) {
+				constraint = constraints[c1];
+				constraintsToUpdate[constraint.id] = constraint;
+			}
+
+			// Therefore it will need resolving
+			systemIsSameSameButDifferent = true;
+		}
+	}
+
+	if (constraintsToUpdate !== null) {
+		var constraintIds = Object.keys(constraintsToUpdate);
+		for (c1 = 0; c1 < constraintIds.length; c1 += 1) {
+			constraint = constraintsToUpdate[constraintIds[c1]];
+			// (Inefficient) Process to update a constraint:
+			// 1 - Remove the constraint
+			this._solver.removeConstraint(constraint._constraint);
+			// 2 - Reconstructing to consider the new constant value
+			constraint.construct();
+			// 3 - Add back the constraint
+			this._solver.addConstraint(constraint._constraint);
+
+			// Should be:
+			// constraint.updateConstant(constant);
+		}
+	}
+
+	if (systemIsSameSameButDifferent === false && slacking === true) {
+		return;
+	}
+
+	this._solver.resolve();
+
+	// Refreshing variables so that their corresponding objects get updated
+	// with the newly computed feasible solution
+	var solutionIsSameSameButDifferent = false;
+	for (var v = 0; v < this._variables.length; v += 1) {
+		if (this._variables[v].refresh() === true) {
+			solutionIsSameSameButDifferent = true;
+		}
+	}
+
+	if (this._optimization === true) {
+		this._objectiveVariable.refresh();
+		this.z = (this._minimization === true) ? this._objectiveVariable._value : -this._objectiveVariable._value;
+	}
+
+	if (solutionIsSameSameButDifferent === true) {
+		if (this._onNewSolution !== null) {
+			this._onNewSolution(this._onNewSolutionParams);
+		}
+	}
+
+	return this;
+};
+
+System.prototype.log = function () {
+	for (var v = 0; v < this._variables.length; v += 1) {
+		var variable = this._variables[v];
+		console.log(variable._name, '=', variable._value);
+	}
+
+	console.log('objective value =', this.z);
+};
+
+},{"./operators.js":5,"./parser.js":6,"./primitives.js":7,"cassowary":1}],4:[function(require,module,exports){
+(function (global){
+var primitives = require('./primitives.js');
+var operators  = require('./operators.js');
+
+var System  = require('./System.js');
+var Numeral = primitives.Numeral;
+
+var Addition       = operators.Addition;
+var Subtraction    = operators.Subtraction;
+var Multiplication = operators.Multiplication;
+var Division       = operators.Division;
+var GreaterOrEqual = operators.GreaterOrEqual;
+var LowerOrEqual   = operators.LowerOrEqual;
+var Equality       = operators.Equality;
+
+var Constrained = {
+	// System of constraints
+	System: System,
+
+	// Expression operators
+	plus: function (expression1, expression2) {
+		if (typeof(expression1) === 'number') { expression1 = new Numeral(expression1); }
+		if (typeof(expression2) === 'number') { expression2 = new Numeral(expression2); }
+		return new Addition(expression1, expression2);
+	},
+
+	minus: function (expression1, expression2) {
+		if (typeof(expression1) === 'number') { expression1 = new Numeral(expression1); }
+		if (typeof(expression2) === 'number') { expression2 = new Numeral(expression2); }
+		return new Subtraction(expression1, expression2);
+	},
+
+	times: function (expression1, expression2) {
+		if (typeof(expression1) === 'number') { expression1 = new Numeral(expression1); }
+		if (typeof(expression2) === 'number') { expression2 = new Numeral(expression2); }
+		return new Multiplication(expression1, expression2);
+	},
+
+	dividedBy: function (expression1, expression2) {
+		if (typeof(expression1) === 'number') { expression1 = new Numeral(expression1); }
+		if (typeof(expression2) === 'number') { expression2 = new Numeral(expression2); }
+		return new Division(expression1, expression2);
+	},
+
+	// Constraint generators
+	greaterThan: function (expression1, expression2, strength, weight) {
+		if (typeof(expression1) === 'number') { expression1 = new Numeral(expression1); }
+		if (typeof(expression2) === 'number') { expression2 = new Numeral(expression2); }
+		return new GreaterOrEqual(expression1, expression2, strength, weight);
+	},
+
+	lowerThan: function (expression1, expression2, strength, weight) {
+		if (typeof(expression1) === 'number') { expression1 = new Numeral(expression1); }
+		if (typeof(expression2) === 'number') { expression2 = new Numeral(expression2); }
+		return new LowerOrEqual(expression1, expression2, strength, weight);
+	},
+
+	equals: function (expression1, expression2, strength, weight) {
+		if (typeof(expression1) === 'number') { expression1 = new Numeral(expression1); }
+		if (typeof(expression2) === 'number') { expression2 = new Numeral(expression2); }
+		return new Equality(expression1, expression2, strength, weight);
+	}
+};
+
+// window within a browser, global within node
+var root;
+if (typeof(window) !== 'undefined') {
+	root = window;
+} else if (typeof(global) !== 'undefined') {
+	root = global;
+} else {
+	console.warn('[TINA] Your environment might not support TINA.');
+	root = this;
+}
+
+module.exports = root.Constrained = Constrained;
+}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
+},{"./System.js":3,"./operators.js":5,"./primitives.js":7}],5:[function(require,module,exports){
+var cassowary  = require('cassowary');
+var Expression = require('./Expression.js');
 
 function Addition(expression1, expression2) {
 	Expression.call(this);
@@ -102,61 +398,63 @@ function Constraint(expression1, expression2, strength, weight) {
 	this._strength    = strength;
 	this._weight      = weight;
 
+	this._constraint = null;
 	this._id = (constraintCount++).toString();
 
-	this._constraint = null;
+	this._registerToPrimitives();
 }
 
-Constraint.prototype.getConstants = function () {
-	var constants = [];
-
-	// TODO: handle multiple appearance of a single constant
+Constraint.prototype._registerToPrimitives = function () {
 	var stack = [this._expression1, this._expression2];
 	while (stack.length !== 0) {
 		var expression = stack.pop();
 		if (expression._left === null) {
-			if (expression instanceof Constant) {
-				constants.push(expression);
-			}
+			expression._register(this);
 		} else {
 			stack.push(expression._left);
 			stack.push(expression._right);
 		}
 	}
-
-	return constants;
 };
 
-Constraint.prototype.getVariables = function () {
-	var variables = [];
-
-	// TODO: handle multiple appearance of a single variable
+Constraint.prototype._unregisterFromPrimitives = function () {
 	var stack = [this._expression1, this._expression2];
 	while (stack.length !== 0) {
 		var expression = stack.pop();
 		if (expression._left === null) {
-			if (expression instanceof Variable) {
-				variables.push(expression);
-			}
+			expression._unregister(this);
 		} else {
 			stack.push(expression._left);
 			stack.push(expression._right);
 		}
 	}
-
-	return variables;
 };
 
-function Inequality(expression1, expression2, strength, weight, operator) {
+function LowerOrEqual(expression1, expression2, strength, weight) {
 	Constraint.call(this, expression1, expression2, strength, weight);
-	this._operator = operator;
 }
-Inequality.prototype = Object.create(Constraint.prototype);
-Inequality.prototype.constructor = Inequality;
-Inequality.prototype.construct = function () {
+LowerOrEqual.prototype = Object.create(Constraint.prototype);
+LowerOrEqual.prototype.constructor = LowerOrEqual;
+LowerOrEqual.prototype.construct = function () {
 	this._constraint = new cassowary.Inequality(
 		this._expression1.construct(),
-		this._operator,
+		cassowary.LEQ,
+		this._expression2.construct(),
+		this._strength,
+		this._weight
+	);
+	return this._constraint;
+};
+
+function GreaterOrEqual(expression1, expression2, strength, weight) {
+	Constraint.call(this, expression1, expression2, strength, weight);
+}
+GreaterOrEqual.prototype = Object.create(Constraint.prototype);
+GreaterOrEqual.prototype.constructor = GreaterOrEqual;
+GreaterOrEqual.prototype.construct = function () {
+	this._constraint = new cassowary.Inequality(
+		this._expression1.construct(),
+		cassowary.GEQ,
 		this._expression2.construct(),
 		this._strength,
 		this._weight
@@ -178,37 +476,632 @@ Equality.prototype.construct = function () {
 	);
 	return this._constraint;
 };
-// *--------------------------*
 
-function NumericalValue(value) {
+module.exports = {
+	Addition:       Addition,
+	Subtraction:    Subtraction,
+	Multiplication: Multiplication,
+	Division:       Division,
+	LowerOrEqual:   LowerOrEqual,
+	GreaterOrEqual: GreaterOrEqual,
+	Equality:       Equality
+};
+
+
+// Constraint.prototype.getConstants = function () {
+// 	var constants = [];
+
+// 	// TODO: handle multiple appearance of a single constant
+// 	var stack = [this._expression1, this._expression2];
+// 	while (stack.length !== 0) {
+// 		var expression = stack.pop();
+// 		if (expression._left === null) {
+// 			if (expression instanceof Constant) {
+// 				constants.push(expression);
+// 			}
+// 		} else {
+// 			stack.push(expression._left);
+// 			stack.push(expression._right);
+// 		}
+// 	}
+
+// 	return constants;
+// };
+
+// Constraint.prototype.getVariables = function () {
+// 	var variables = [];
+
+// 	// TODO: handle multiple appearance of a single variable
+// 	var stack = [this._expression1, this._expression2];
+// 	while (stack.length !== 0) {
+// 		var expression = stack.pop();
+// 		if (expression._left === null) {
+// 			if (expression instanceof Variable) {
+// 				variables.push(expression);
+// 			}
+// 		} else {
+// 			stack.push(expression._left);
+// 			stack.push(expression._right);
+// 		}
+// 	}
+
+// 	return variables;
+// };
+},{"./Expression.js":2,"cassowary":1}],6:[function(require,module,exports){
+var systemOperators  = require('./operators.js');
+var systemPrimitives = require('./primitives.js');
+
+var Addition       = systemOperators.Addition;
+var Subtraction    = systemOperators.Subtraction;
+var Multiplication = systemOperators.Multiplication;
+var Division       = systemOperators.Division;
+var GreaterOrEqual = systemOperators.GreaterOrEqual;
+var LowerOrEqual   = systemOperators.LowerOrEqual;
+var Equality       = systemOperators.Equality;
+
+var Numeral = systemPrimitives.Numeral;
+
+//▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+/**
+ * @class  Expression Parser
+ * @author Cedric Stoquer
+ *
+ * @param {String} str - string buffer
+ *
+ *
+ * Simple expression parser with the following features:
+ * - parse variables, integer and float numbers, string constants, unary and binary operators,
+ *   parenthesis, predefined functions with any number of parameters.
+ * - correctly resolve operator precedence.
+ *
+ * Originaly designed to parse BASIC programs
+ */
+function Parser(str) {
+	this.str                = str;
+	this.parameterMap       = null;
+	this.onParameterMissing = null;
+}
+
+function parseExpression(str, parameterMap, onParameterMissing) {
+	var parser = new Parser(str);
+	parser.parameterMap       = parameterMap;
+	parser.onParameterMissing = onParameterMissing;
+	return parser.parseExpression();
+}
+
+module.exports = parseExpression;
+
+//▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+
+var operators = [
+	// { id: ';',   precedence: 0 },
+	// { id: 'AND', precedence: 1 },
+	// { id: 'OR',  precedence: 1 },
+	// { id: 'XOR', precedence: 1 },
+	// { id: '<>',  precedence: 2 },
+	{ id: '>=',  precedence: 2, class: GreaterOrEqual },
+	{ id: '<=',  precedence: 2, class: LowerOrEqual },
+	{ id: '=',   precedence: 2, class: Equality },
+	// { id: '>',   precedence: 2 },
+	// { id: '<',   precedence: 2 },
+	{ id: '+',   precedence: 3, class: Addition },
+	{ id: '-',   precedence: 3, class: Subtraction },
+	// { id: '\\',  precedence: 4 },
+	// { id: 'MOD', precedence: 4 },
+	{ id: '*',   precedence: 4, class: Multiplication },
+	{ id: '/',   precedence: 4, class: Division }
+];
+
+var unaryOperators = [
+	// { id: '!' }
+];
+
+var functions = [
+	// { id: 'ABS',      parameters: 1 },
+	// { id: 'ATN',      parameters: 1 },
+	// { id: 'CIN',      parameters: 1 },
+	// { id: 'COS',      parameters: 1 },
+	// { id: 'EXP',      parameters: 1 },
+	// { id: 'INT',      parameters: 1 },
+	// { id: 'LOG10',    parameters: 1 },
+	// { id: 'LOG',      parameters: 1 },
+	// { id: 'MAX',      parameters: '*' },
+	// { id: 'MIN',      parameters: '*' },
+	// { id: 'PI',       parameters: 0 },
+	// { id: 'ROUND',    parameters: [1, 2] },
+	// { id: 'SGN',      parameters: 1 },
+	// { id: 'SIN',      parameters: 1 },
+	// { id: 'SQR',      parameters: 1 },
+	// { id: 'TAN',      parameters: 1 }
+];
+
+//▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+
+Parser.prototype.removeWhiteSpace = function () {
+	var t = this;
+	// while (t.str[0] === ' ' || t.str[0] === '\n') t.str = t.str.substring(1);
+	t.str = t.str.replace(' ', '');
+	t.str = t.str.replace('\n', '');
+};
+
+//███████████████████████████████████████████████████████████████████████████████
+//██▄░▄▄▄▀███████████████████████████████▀████▄░██████████████████████▄██████████
+//███░███░█▀▄▄▄▄▀██▄░▀▄▄▄█▀▄▄▄▄▀█▄░▀▄▄▀█▄░▄▄▄██░▀▄▄▀██▀▄▄▄▄▀█▀▄▄▄▄░█▄▄░███▀▄▄▄▄░█
+//███░▄▄▄██▀▄▄▄▄░███░█████░▄▄▄▄▄██░███░██░█████░███░██░▄▄▄▄▄██▄▄▄▄▀███░████▄▄▄▄▀█
+//██▀░▀████▄▀▀▀▄░▀█▀░▀▀▀██▄▀▀▀▀▀█▀░▀█▀░▀█▄▀▀▀▄▀░▀█▀░▀█▄▀▀▀▀▀█░▀▀▀▀▄█▀▀░▀▀█░▀▀▀▀▄█
+//███████████████████████████████████████████████████████████████████████████████
+
+/** @method parseParenthesis
+ */
+Parser.prototype.parseParenthesis = function () {
+	var t = this;
+	if (t.str[0] !== '(') throw new Error('An opening parenthesis is missing.');
+	//consume first parenthesis
+	t.str = t.str.substring(1);
+	var res = '';
+	var stackParenthesis = 0;
+	while (!(t.str[0] === ')' && stackParenthesis === 0)) {
+		if (t.str[0] === '(') stackParenthesis++;
+		if (t.str[0] === ')') stackParenthesis--;
+		if (stackParenthesis < 0) throw new Error('Too much closing parenthesis.');
+		res += t.str[0];
+		t.str = t.str.substring(1);
+		if (t.str === '') throw new Error('Parenthesis expression doesn\'t resolve');
+	}
+	// consume last parenthesis
+	t.str = t.str.substring(1);
+
+	// parse expression inside parenthesis
+	res = parseExpression(res, t.parameterMap, t.onParameterMissing);
+	// res = {
+	// 	type: 'parenthesis',
+	// 	arg: res
+	// };
+	return res;
+};
+
+//█████████████████████████████████████████
+//██▄░▄████████▄█████████████▀█████████████
+//███░███████▄▄░████▀▄▄▄▄░██▄░▄▄▄██████████
+//███░███▀█████░█████▄▄▄▄▀███░█████████████
+//██▀░▀▀▀░███▀▀░▀▀██░▀▀▀▀▄███▄▀▀▀▄█████████
+//█████████████████████████████████████████
+
+/** @method getParenthesisList
+ * Parse a list of comma separated arguments
+ */
+Parser.prototype.getParenthesisList = function () {
+	var t = this;
+	// parse parenthesis content: (expr, expr, ...)
+	if (t.str[0] !== '(') throw new Error('An opening parenthesis is missing.');
+	// consume first "("
+	t.str = t.str.substring(1);
+	var args = [];
+	var arg = '';
+	var stackParenthesis = 0;
+	while (!(t.str[0] === ')' && stackParenthesis === 0)) {
+		if (t.str[0] === '(') stackParenthesis++;
+		if (t.str[0] === ')') stackParenthesis--;
+		if (stackParenthesis < 0) throw new Error('Too much closing parenthesis.');
+		if (t.str[0] === ',' && stackParenthesis === 0) {
+			arg = parseExpression(arg);
+			args.push(arg);
+			arg = '';
+		} else {
+			arg += t.str[0];
+		}
+		t.str = t.str.substring(1);
+		if (t.str === '') throw new Error('Parenthesis expression doesn\'t resolve');
+	}
+	// push last parameter
+	arg = parseExpression(arg);
+	args.push(arg);
+	// consume last ")"
+	t.str = t.str.substring(1);
+	return args;
+};
+
+//█████████████████████████████████████████████████
+//██▀▄▄▄▀░███▀█████████████████▄███████████████████
+//██▄▀▀▀▀███▄░▄▄▄███▄░▀▄▄▄███▄▄░████▄░▀▄▄▀██▀▄▄▄▀░▄
+//███████░███░███████░█████████░█████░███░██░████░█
+//██░▄▀▀▀▄███▄▀▀▀▄██▀░▀▀▀████▀▀░▀▀██▀░▀█▀░▀█▄▀▀▀▄░█
+//███████████████████████████████████████████▀▀▀▀▄█
+
+/** @method parseString
+ */
+Parser.prototype.parseString = function () {
+	var t = this;
+	var res = '';
+	if (t.str[0] !== '"') throw new Error('An opening quote is missing.');
+	// consume first double quote
+	t.str = t.str.substring(1);
+	while (t.str[0] !== '"') {
+		res += t.str[0];
+		t.str = t.str.substring(1);
+		if (t.str === '') throw new Error('Closing quote not found.');
+	}
+	// consume last double quote
+	t.str = t.str.substring(1);
+	return { type: 'string', value: res };
+};
+
+//██████████████████████████████████████████████████
+//██▄░░██▄░▄████████████████▄░██████████████████████
+//███░█░██░██▄░██▄░█▄░▀▄▀▀▄▀█░▀▄▄▄▀██▀▄▄▄▄▀██▄░▀▄▄▄█
+//███░██░█░███░███░██░██░██░█░████░██░▄▄▄▄▄███░█████
+//██▀░▀██░░███▄▀▀▄░▀▀░▀█░▀█░▀░▄▀▀▀▄██▄▀▀▀▀▀██▀░▀▀▀██
+//██████████████████████████████████████████████████
+
+/** @method parseNumber
+ */
+Parser.prototype.parseNumber = function () {
+	var t    = this;
+	var type = 'int';
+	var res  = '';
+
+	// check for a negative number
+	if (t.str[0] === '-') {
+		res   = '-';
+		t.str = t.str.substring(1);
+		// t.removeWhiteSpace();
+	}
+
+	if (t.str === '') throw new Error('End of line before number.');
+
+	if (t.str[0].search(/[0-9]/) === -1) throw new Error('Not a digit character');
+	while (t.str[0].search(/[0-9]/) === 0) {
+		res += t.str[0];
+		t.str = t.str.substring(1);
+		if (t.str === '') break;
+	}
+
+	// check for a decimal point
+	if (t.str[0] === '.') {
+		type = 'float';
+		res += '.';
+		t.str = t.str.substring(1);
+		// continue to consume decimal digits
+		while (t.str[0].search(/[0-9]/) === 0) {
+			res += t.str[0];
+			t.str = t.str.substring(1);
+			if (t.str === '') break;
+		}
+	}
+
+	// var value = Number(res);
+	return new Numeral(parseFloat(res));
+};
+
+//█████████████████████████████████████████████████████████████████
+//██▄░▄▄▄░███████████████████████████▀█████████▄███████████████████
+//███░▀░████▄░██▄░██▄░▀▄▄▀██▀▄▄▄▀░██▄░▄▄▄████▄▄░████▀▄▄▄▄▀██▄░▀▄▄▀█
+//███░█▄█████░███░███░███░██░████████░█████████░████░████░███░███░█
+//██▀░▀██████▄▀▀▄░▀█▀░▀█▀░▀█▄▀▀▀▀▄███▄▀▀▀▄███▀▀░▀▀██▄▀▀▀▀▄██▀░▀█▀░▀
+//█████████████████████████████████████████████████████████████████
+
+/** @method parseFunction
+ * @desc   get function parameters content
+ * @param {Object} func - function definition object
+ *
+ * A function have the following syntax:
+ * - without parameters                : FUNC
+ * - parameters defined in parenthesis : FUNC(X)
+ * - and comma separated               : FUNC(X1, X2, X3, ...)
+ */
+Parser.prototype.parseFunction = function (func) {
+	var t = this;
+	// function name has already been consumed.
+	var res = { type: 'function', id: func.id };
+	var parameters = func.parameters;
+	// parameters can be:
+	// 0 -> no parameters, thus no parenthesis
+	if (parameters === 0) return res;
+
+	// int   -> a fixed number of parameter
+	// array -> various number of parameters is possible
+	// '*'   -> number of parameters is free (but at least 1)
+
+	// special case: if function can have 0 or more parameters,
+	// then if we have 0 parameters, there are no parenthesis
+	if (Array.isArray(parameters) && parameters.indexOf(0) !== -1 && t.str[0] !== '(') {
+		return res;
+	}
+
+	var args = t.getParenthesisList();
+
+	// check parameters count
+	var count = args.length;
+	// there are no parameter (but there are brackets)
+	if (count === 0) throw new Error('There is no arguments inside function brackets.');
+	// number of parameters is incorrect
+	if (!isNaN(parameters) && count !== parameters) throw new Error('Incorrect number of arguments.');
+	// check when various number of parameters are possible
+	if (Array.isArray(parameters)) {
+		var ok = false;
+		for (var i = 0, len = parameters.length; i < len; i++) {
+			if (count === parameters[i]) {
+				ok = true;
+				break;
+			}
+		}
+		if (!ok) throw new Error('Incorrect number of arguments.');
+	}
+
+	// add parameters in result
+	res.args = args;
+	return res;
+};
+
+
+//█████████████████████████████████████████████████████████████████
+//█▄░▄██▄░▄████████████████████▄███████████▄░█████████▄░███████████
+//██▄▀██▀▄██▀▄▄▄▄▀██▄░▀▄▄▄███▄▄░████▀▄▄▄▄▀██░▀▄▄▄▀█████░████▀▄▄▄▄▀█
+//███░██░███▀▄▄▄▄░███░█████████░████▀▄▄▄▄░██░████░█████░████░▄▄▄▄▄█
+//████░░████▄▀▀▀▄░▀█▀░▀▀▀████▀▀░▀▀██▄▀▀▀▄░▀▀░▄▀▀▀▄███▀▀░▀▀██▄▀▀▀▀▀█
+//█████████████████████████████████████████████████████████████████
+
+/** @method parseVariable
+ */
+Parser.prototype.parseVariable = function () {
+	var t = this;
+	var res = '';
+	// default type for locomotive basic are float
+	var varType = 'float';
+
+	// first character must be a letter
+	if (t.str[0].search(/[A-Za-z]/) === -1) throw new Error('Invalid variable name');
+	res += t.str[0];
+	t.str = t.str.substring(1);
+
+	// following character could be letters or numbers
+	while (t.str !== '' && t.str[0].search(/[A-Za-z0-9]/) !== -1) {
+		res += t.str[0];
+		t.str = t.str.substring(1);
+	}
+
+	// variable name can ends with one of these special characters : $ % !
+	if (t.str[0] === '$' || t.str[0] === '%' || t.str[0] === '!') {
+		res += t.str[0];
+		switch (t.str[0]) {
+		case '$': varType = 'string'; break;
+		case '%': varType = 'int'; break;
+		case '!': varType = 'float'; break;
+		}
+		t.str = t.str.substring(1);
+	}
+
+	/*res = {
+		type: 'variable',
+		varType: varType,
+		id: res,
+	};
+
+	// if variable is an array, following character is a opening bracket
+	if (t.str[0] === '(') {
+		// extract parenthesis content
+		res.indexes = t.getParenthesisList();
+		// set variable as an array
+		res.isArray = true;
+	}
+
+	return res;*/
+
+	var parameter = t.parameterMap[res];
+	return (parameter === undefined) ? t.onParameterMissing(res) : parameter;
+};
+
+//██████████████████████████████████████████████████████████████████████████
+//██▄░░██▄░▄████████████████▀██████▀▄▄▄▀██▄░████████▄█████████████████▀█████
+//███░█░██░██▀▄▄▄▄▀█▄░██░▄█▄░▄▄▄██░█████░██░▀▄▄▄▀█▄▄▄░█▀▄▄▄▄▀█▀▄▄▄▀░█▄░▄▄▄██
+//███░██░█░██░▄▄▄▄▄███░░████░█████░█████░██░████░████░█░▄▄▄▄▄█░███████░█████
+//██▀░▀██░░██▄▀▀▀▀▀█▀░██░▀██▄▀▀▀▄██▄▀▀▀▄██▀░▄▀▀▀▄████░█▄▀▀▀▀▀█▄▀▀▀▀▄██▄▀▀▀▄█
+//████████████████████████████████████████████████▀▀▀▄██████████████████████
+
+/** @method getNextObject
+ *
+ * next object should be one of these:
+ *  ~  (e)     an expression in parenthesis
+ *  ~  -1      a number (possibly negative). NOTA: no whitespace allowed between "-" operator and the number
+ *  ~  -e      unary operator applied to an expression
+ *  ~  NOT e   unary boolean operator NOT
+ *  ~  F(e,e)  a function (function names are known, see table)
+ *  ~  X       a variable name
+ */
+Parser.prototype.getNextObject = function () {
+	var t = this;
+	// t.removeWhiteSpace();
+
+	if (t.str === '') return null;
+
+	// check if next object is an expression in parenthesis
+	if (t.str[0] === '(') return t.parseParenthesis();
+
+	// check if next object is a string
+	if (t.str[0] === '"') return t.parseString();
+
+	// TODO: hexadecimal number
+
+	// check for unary '-' operator (not with number)
+	if (t.str[0] === '-' && t.str[1].search(/[0-9]/) === -1) {
+		// consume '-'
+		t.str = t.str.substring(1);
+		return new Multiplication(new Numeral(-1), t.getNextObject());
+		// return { type: 'unaryOp', id: '-', arg: t.getNextObject() };
+	}
+
+	// check for unary operators
+	var i;
+	for (i = 0; i < unaryOperators.length; i++) {
+		var operatorId = unaryOperators[i].id;
+		var strLen = operatorId.length;
+		if (t.str.substring(0, strLen) === operatorId) {
+			// consume operator
+			t.str = t.str.substring(strLen);
+			return new unaryOperators[i].class(t.getNextObject());
+			// return { type: 'unaryOp', id: operatorId, arg: t.getNextObject() };
+		}
+	}
+
+	// check if next object is a number
+	if (t.str[0].search(/[\-0-9]/) !== -1) return t.parseNumber();
+
+	// check if next object is a function
+	for (i = 0; i < functions.length; i++) {
+		var fLen = functions[i].id.length;
+		if (t.str.substring(0, fLen) === functions[i].id) {
+			// consume funtion name
+			t.str = t.str.substring(fLen);
+			// get parameters and return function object
+			return t.parseFunction(functions[i]);
+		}
+	}
+
+	// check if next object is a variable name
+	if (t.str[0].search(/[A-Za-z]/) !== -1) return t.parseVariable();
+
+	// not recognized object
+	return null;
+};
+
+//██████████████████████████████████████████████████████████████████████████████████████████
+//██▄░░██▄░▄████████████████▀██████▀▄▄▄▀████████████████████████████████▀███████████████████
+//███░█░██░██▀▄▄▄▄▀█▄░██░▄█▄░▄▄▄██░█████░█▄░▀▄▄▀█▀▄▄▄▄▀█▄░▀▄▄▄█▀▄▄▄▄▀██▄░▄▄▄██▀▄▄▄▄▀█▄░▀▄▄▄█
+//███░██░█░██░▄▄▄▄▄███░░████░█████░█████░██░███░█░▄▄▄▄▄██░█████▀▄▄▄▄░███░█████░████░██░█████
+//██▀░▀██░░██▄▀▀▀▀▀█▀░██░▀██▄▀▀▀▄██▄▀▀▀▄███░▀▀▀▄█▄▀▀▀▀▀█▀░▀▀▀██▄▀▀▀▄░▀██▄▀▀▀▄█▄▀▀▀▀▄█▀░▀▀▀██
+//████████████████████████████████████████▀░▀███████████████████████████████████████████████
+
+/** @method getNextOperator
+ *
+ * next token is an operator in the list
+ */
+Parser.prototype.getNextOperator = function () {
+	var t = this;
+	// t.removeWhiteSpace();
+
+	// check end of stream
+	if (t.str === '') return null;
+
+	// check each of operators
+	for (var i = 0; i < operators.length; i++) {
+		var oLen = operators[i].id.length;
+		if (t.str.substring(0, oLen) === operators[i].id) {
+			// consume token
+			t.str = t.str.substring(oLen);
+			// return operator
+			return operators[i];
+		}
+	}
+
+	// next element is not a token
+	return null;
+};
+
+//████████████████████████████████████████████████████████████████████████
+//█████████████████████████████████████████████████████▄██████████████████
+//██▀▄▄▄▄▀█▄░██░▄█▄░▀▄▄▀█▄░▀▄▄▄█▀▄▄▄▄▀█▀▄▄▄▄░█▀▄▄▄▄░█▄▄░███▀▄▄▄▄▀█▄░▀▄▄▀██
+//██░▄▄▄▄▄███░░████░███░██░█████░▄▄▄▄▄██▄▄▄▄▀██▄▄▄▄▀███░███░████░██░███░██
+//██▄▀▀▀▀▀█▀░██░▀██░▀▀▀▄█▀░▀▀▀██▄▀▀▀▀▀█░▀▀▀▀▄█░▀▀▀▀▄█▀▀░▀▀█▄▀▀▀▀▄█▀░▀█▀░▀█
+//████████████████▀░▀█████████████████████████████████████████████████████
+
+/** @method parseExpression
+ *
+ * next token is an operator in the list
+ */
+Parser.prototype.parseExpression = function () {
+	this.removeWhiteSpace();
+
+	// get all tokens
+	var operator;
+	var objects   = [];
+	var operators = [];
+	while (true) {
+		objects.push(this.getNextObject());
+		operator = this.getNextOperator();
+		if (operator === null) break;
+		operators.push(operator);
+	}
+
+	// parse expression
+	var i = 0;
+	while (operators.length > 0) {
+		operator = operators[i];
+		var lookahead = operators[i+1];
+		if (!lookahead || operator.precedence >= lookahead.precedence) {
+			// reducing object[i] operator[i] object[i+1]
+			// var object = {
+			// 	type: 'operator',
+			// 	id:   operator.id,
+			// 	arg1: objects[i],
+			// 	arg2: objects[i+1]
+			// };
+
+			var object = new operator.class(objects[i], objects[i+1]);
+
+			objects.splice(i, 2, object);
+			operators.splice(i, 1);
+			i = 0;
+			continue;
+		}
+		i += 1;
+	}
+	return objects[0];
+};
+
+
+
+},{"./operators.js":5,"./primitives.js":7}],7:[function(require,module,exports){
+var cassowary  = require('cassowary');
+var Expression = require('./Expression.js');
+
+function Numeral(value) {
 	this._value = value;
 	Expression.call(this);
 }
-NumericalValue.prototype = Object.create(Expression.prototype);
-NumericalValue.prototype.constructor = NumericalValue;
+Numeral.prototype = Object.create(Expression.prototype);
+Numeral.prototype.constructor = Numeral;
 
-NumericalValue.prototype.construct = function () {
+Numeral.prototype.construct = function () {
 	return new cassowary.Expression(this._value);
 };
 
-function ObjectBinder(object, property, id) {
+Numeral.prototype._register   = function () {};
+Numeral.prototype._unregister = function () {};
+
+
+function ObjectBinder(name, object, property) {
+	this._name     = name;
 	this._object   = object;
 	this._property = property;
-	this._id       = id;
 	this._value    = object[property];
+
+	this._constraints = [];
 }
 
-var constantCount = 0;
-function Constant(object, property) {
+ObjectBinder.prototype._register = function (constraint) {
+	this._constraints.push(constraint);
+};
+
+ObjectBinder.prototype._unregister = function (constraint) {
+	var idx = this._constraints.indexOf(constraint);
+	if (idx === -1) {
+		this._constraints.splice(idx, 1);
+	}
+};
+
+
+function Constant(name, object, property) {
 	if ((this instanceof Constant) === false) {
 		return new Constant(object, property);
 	}
 
-	ObjectBinder.call(this, object, property, (constantCount++).toString());
+	ObjectBinder.call(this, name, object, property);
 	Expression.call(this);
 }
 Constant.prototype = Object.create(Expression.prototype);
 Constant.prototype.constructor = Constant;
+Constant.prototype._register   = ObjectBinder.prototype._register;
+Constant.prototype._unregister = ObjectBinder.prototype._unregister;
 
 Constant.prototype.construct = function () {
 	return new cassowary.Expression(this._object[this._property]);
@@ -223,8 +1116,8 @@ Constant.prototype.refresh = function () {
 	return false;
 };
 
-var variableCount = 0;
-function Variable(object, property) {
+
+function Variable(name, object, property) {
 	if ((this instanceof Variable) === false) {
 		return new Variable(object, property);
 	}
@@ -235,13 +1128,14 @@ function Variable(object, property) {
 	this._onChange       = null;
 	this._onChangeParams = null;
 
-	ObjectBinder.call(this, object, property, (variableCount++).toString());
+	ObjectBinder.call(this, name, object, property);
 	Expression.call(this);
 
-	this._variable = new cassowary.Variable({ name: this._id, value: this._value });
+	this._variable = new cassowary.Variable({ name: this._name, value: this._value });
 }
 Variable.prototype = Object.create(cassowary.Variable.prototype);
 Variable.prototype.constructor = Variable;
+Variable.prototype._register = ObjectBinder.prototype._register;
 
 Variable.prototype.construct = function () {
 	return new cassowary.Expression(this._variable, 1);
@@ -260,226 +1154,9 @@ Variable.prototype.refresh = function () {
 	return false;
 };
 
-function ConstantHandle(constant, constraint) {
-	this.constant = constant;
-	this.constraints = [constraint];
-}
-
-function System() {
-	if ((this instanceof System) === false) {
-		return new System();
-	}
-
-	this._solver = new cassowary.SimplexSolver();
-	this._solver.autoSolve = false;
-
-	this._variables   = {};
-	this._constraints = {};
-	this._variableIds = null;
-
-	// *- TOGO WHEN SOLVER FIXED -*
-	this._constants   = {};
-	this._constantIds = null;
-	// *--------------------------*
-
-	// Callback and its parameters
-	// Yes it is possible to pass the parameters of the callback
-	// to allow the user to avoid keeping closures around (closures keep objects in memory!)
-	this._onNewSolution       = null;
-	this._onNewSolutionParams = null;
-
-	this._forceResolving = true;
-
-	this.optimalValue = 0;
-}
-
-System.prototype.onNewSolution = function (onNewSolution, onNewSolutionParams) {
-	this._onNewSolution       = onNewSolution;
-	this._onNewSolutionParams = onNewSolutionParams;
-	return this;
-};
-
-System.prototype.minimize = function (expression) {
-	if (expression instanceof Variable === true) {
-		this._solver.optimize(expression._variable);
-	} else {
-		var objectiveVariable = new Variable(this, 'optimalValue');
-		this.addConstraint(new Equality(objectiveVariable, expression));
-		this._solver.optimize(objectiveVariable._variable);
-	}
-
-	this._forceResolving = true;
-	return this;
-};
-
-System.prototype.maximize = function (expression) {
-	return this.minimize(new Multiplication(expression, new NumericalValue(-1)));
-};
-
-System.prototype.addConstraint = function (constraint) {
-	if (this._constraints[constraint._id] !== undefined) {
-		console.warn('[System.addConstraint] Constraint already present in the system:', constraint);
-		return;
-	}
-
-	// *- TOGO WHEN SOLVER FIXED -*
-	var constants = constraint.getConstants();
-	for (var c = 0; c < constants.length; c += 1) {
-		var constant = constants[c];
-		var constantId = constant._id;
-		if (this._constants[constantId] === undefined) {
-			this._constants[constantId] = new ConstantHandle(constant, constraint);
-		} else {
-			this._constants[constantId].constraints.push(constraint);
-		}
-	}
-	this._constantIds = Object.keys(this._constants);
-	// *--------------------------*
-
-	var variables = constraint.getVariables();
-	for (var v = 0; v < variables.length; v += 1) {
-		var variable = variables[v];
-		var variableId = variable._id;
-		if (this._variables[variableId] === undefined) {
-			this._variables[variableId] = variable;
-		}
-	}
-	this._variableIds = Object.keys(this._variables);
-
-
-	var cassowaryConstraint = constraint.construct();
-	this._solver.addConstraint(cassowaryConstraint);
-	this._constraints[constraint._id] = constraint;
-
-	this._forceResolving = true;
-	return this;
-};
-
-System.prototype.resolve = function (slacking) {
-	var systemIsSameSameButDifferent = this._forceResolving;
-	this._forceResolving = false;
-
-	// Checking whether a constant has changed
-	for (var c0 = 0; c0 < this._constantIds.length; c0 += 1) {
-		var constantId = this._constantIds[c0];
-		var constantHandle = this._constants[constantId];
-		var constant = constantHandle.constant;
-		if (constant.refresh()) {
-			// The value of the constant has changed
-
-			// *- TOGO WHEN SOLVER FIXED -*
-			// Updating all the constraints containing the constant
-			var constraints = constantHandle.constraints;
-			for (var c1 = 0; c1 < constraints.length; c1 += 1) {
-				var constraint = constraints[c1];
-
-				// (Inefficient) Process to update a constraint:
-				// 1 - Remove the constraint
-				this._solver.removeConstraint(constraint._constraint);
-				// 2 - Reconstructing to consider the new constant value
-				constraint.construct();
-				// 3 - Add back the constraint
-				this._solver.addConstraint(constraint._constraint);
-
-				// Should be:
-				// constraint.updateConstant(constant);
-			}
-			// *--------------------------*
-
-			// Therefore it will need resolving
-			systemIsSameSameButDifferent = true;
-		}
-	}
-
-	if (systemIsSameSameButDifferent === false && slacking === true) {
-		return;
-	}
-
-	this._solver.resolve();
-
-	// Refreshing variables so that their corresponding objects get updated
-	// with the newly computed feasible solution
-	var solutionIsSameSameButDifferent = false;
-	for (var v = 0; v < this._variableIds.length; v += 1) {
-		var variableId = this._variableIds[v];
-		if (this._variables[variableId].refresh() === true) {
-			solutionIsSameSameButDifferent = true;
-		}
-	}
-
-	if (solutionIsSameSameButDifferent === true) {
-		if (this._onNewSolution !== null) {
-			this._onNewSolution(this._onNewSolutionParams);
-		}
-	}
-
-	return this;
-};
-
-var Constrained = {
-	// System of constraints
-	System: System,
-
-	// Primitive types
-	Variable: Variable,
+module.exports = {
+	Numeral:  Numeral,
 	Constant: Constant,
-
-	// Expression operators
-	plus: function (expression1, expression2) {
-		if (typeof(expression1) === 'number') { expression1 = new NumericalValue(expression1); }
-		if (typeof(expression2) === 'number') { expression2 = new NumericalValue(expression2); }
-		return new Addition(expression1, expression2);
-	},
-
-	minus: function (expression1, expression2) {
-		if (typeof(expression1) === 'number') { expression1 = new NumericalValue(expression1); }
-		if (typeof(expression2) === 'number') { expression2 = new NumericalValue(expression2); }
-		return new Subtraction(expression1, expression2);
-	},
-
-	times: function (expression1, expression2) {
-		if (typeof(expression1) === 'number') { expression1 = new NumericalValue(expression1); }
-		if (typeof(expression2) === 'number') { expression2 = new NumericalValue(expression2); }
-		return new Multiplication(expression1, expression2);
-	},
-
-	dividedBy: function (expression1, expression2) {
-		if (typeof(expression1) === 'number') { expression1 = new NumericalValue(expression1); }
-		if (typeof(expression2) === 'number') { expression2 = new NumericalValue(expression2); }
-		return new Division(expression1, expression2);
-	},
-
-	// Constraint generators
-	greaterThan: function (expression1, expression2, strength, weight) {
-		if (typeof(expression1) === 'number') { expression1 = new NumericalValue(expression1); }
-		if (typeof(expression2) === 'number') { expression2 = new NumericalValue(expression2); }
-		return new Inequality(expression1, expression2, strength, weight, cassowary.GEQ);
-	},
-
-	smallerThan: function (expression1, expression2, strength, weight) {
-		if (typeof(expression1) === 'number') { expression1 = new NumericalValue(expression1); }
-		if (typeof(expression2) === 'number') { expression2 = new NumericalValue(expression2); }
-		return new Inequality(expression1, expression2, strength, weight, cassowary.LEQ);
-	},
-
-	equals: function (expression1, expression2, strength, weight) {
-		if (typeof(expression1) === 'number') { expression1 = new NumericalValue(expression1); }
-		if (typeof(expression2) === 'number') { expression2 = new NumericalValue(expression2); }
-		return new Equality(expression1, expression2, strength, weight);
-	}
+	Variable: Variable
 };
-
-// window within a browser, global within node
-var root;
-if (typeof(window) !== 'undefined') {
-	root = window;
-} else if (typeof(global) !== 'undefined') {
-	root = global;
-} else {
-	console.warn('[TINA] Your environment might not support TINA.');
-	root = this;
-}
-
-module.exports = root.Constrained = Constrained;
-}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"cassowary":1}]},{},[2]);
+},{"./Expression.js":2,"cassowary":1}]},{},[4]);

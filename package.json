@@ -1,7 +1,7 @@
 {
   "name": "constrained",
-  "version": "0.1.1",
-  "description": "Finds and assign a feasible solution to a system of numerical constraints linking javascript object properties",
+  "version": "0.2.0",
+  "description": "JavaScript Constraint Solver with automatic variable assignment",
   "main": "index.js",
   "scripts": {
     "build": "jshint src && browserify -t uglifyify src/index.js -o build/constrained.min.js && browserify src/index.js -o build/constrained.js",
