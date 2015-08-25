@@ -6,6 +6,23 @@
 Finds a feasible solution to a system of constraints and assign it to linked **object properties**.
 Based on **cassowary.js**, an implementation of the **simplex algorithm** (it can only handle linear continuous optimisation problems).
 
+## How to use
+
+### In a browser
+Include Constrained's build in your html using either the [minified library](https://raw.githubusercontent.com/Wizcorp/constraint/master/build/constraint.min.js) or the [unminified version](https://raw.githubusercontent.com/Wizcorp/constraint/master/build/constraint.js).
+
+```html
+<script src="constraint.min.js"></script>
+```
+
+### In Node.js
+Install Constrained using ```npm install constrained```, then require it:
+```javascript
+var Constrained = require('constrained');
+```
+
+##API
+
 The following example shows **how to instantiate and solve** a **system** with two **variables**, one **constant** and one **constraint**:
 ``` javascript
 
@@ -13,7 +30,7 @@ var myObject1 = { a: 0, b: 0 };
 var myObject2 = { c: 100 };
 
 // Instanciation of the system
-var mySystem = new Cst.System();
+var mySystem = new Constrained.System();
 
 // Instanciation of the variables and the constant
 mySystem.addVariable('x', myObject1, 'a'); // variable named x
@@ -68,7 +85,7 @@ console.log('(x, y) = (', myObject1.a, ',', myObject1.b, ')');
 
 **Possibility to chain function calls**:
 ``` javascript
-var mySystem = new Cst.System()
+var mySystem = new Constrained.System()
 	.addConstraint('- x1 - x2 + 2 * x3 <= -3')
 	.addConstraint('- 4 * x1 - 2 * x2 + x3 <= -4')
 	.addConstraint('x1 + x2 - 4 * x3 <= 2')
@@ -91,6 +108,8 @@ console.log('(x1, x2, x3, z) = (', x1, ',', x2, ',', x3, ',', z, ')');
 
 **Possibility to use the function API for defining systems (for improved performance)**:
 ``` javascript
+var Cst = Constrained;
+
 var myObject1 = { x: 0 };
 var myObject2 = { x: 0 };
 var myObject3 = { x: 0 };
@@ -130,7 +149,7 @@ var mySquare = { width: 0, height: 0, area: 0 };
 var myPerimeter = { length: 10 };
 
 // Instanciation of the system
-var mySystem = new Cst.System()
+var mySystem = new Constrained.System()
 	.addVariable('w', mySquare, 'width')
 	.addVariable('h', mySquare, 'height')
 	.addConstant('p', myPerimeter, 'length')
