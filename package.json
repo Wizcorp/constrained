@@ -1,6 +1,6 @@
 {
   "name": "constrained",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "JavaScript Constraint Solver with automatic variable assignment",
   "main": "index.js",
   "scripts": {
