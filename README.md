@@ -29,10 +29,10 @@ The following example shows **how to instantiate and solve** a **system** with t
 var myObject1 = { a: 0, b: 0 };
 var myObject2 = { c: 100 };
 
-// Instanciation of the system
+// Instantiation of the system
 var mySystem = new Constrained.System();
 
-// Instanciation of the variables and the constant
+// Instantiation of the variables and the constant
 mySystem.addVariable('x', myObject1, 'a'); // variable named x
 mySystem.addVariable('y', myObject1, 'b'); // variable named y
 mySystem.addConstant('c', myObject2, 'c'); // constant named c
@@ -106,7 +106,7 @@ var z  = mySystem.getObjectiveValue();
 console.log('(x1, x2, x3, z) = (', x1, ',', x2, ',', x3, ',', z, ')');
 ```
 
-**Possibility to use the function API for defining systems (for improved performance)**:
+**Possibility to define a system using the function API (for improved performance)**:
 ``` javascript
 var Cst = Constrained;
 
@@ -148,7 +148,7 @@ mySystem.log();
 var mySquare = { width: 0, height: 0, area: 0 };
 var myPerimeter = { length: 10 };
 
-// Instanciation of the system
+// Instantiation of the system
 var mySystem = new Constrained.System()
 	.addVariable('w', mySquare, 'width')
 	.addVariable('h', mySquare, 'height')

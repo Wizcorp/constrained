@@ -10,6 +10,7 @@
     "parser.js",
     "index.js"
   ],
+  "main": "build/constrained.js",
   "dependencies": {
     "slightlyoff/cassowary.js": "0.0.2"
   }

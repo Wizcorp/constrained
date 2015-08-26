@@ -169,6 +169,7 @@ System.prototype.resolve = function (slacking) {
 		}
 	}
 
+	// Updating constraints for which a constant has changed
 	if (constraintsToUpdate !== null) {
 		var constraintIds = Object.keys(constraintsToUpdate);
 		for (c1 = 0; c1 < constraintIds.length; c1 += 1) {
@@ -186,10 +187,12 @@ System.prototype.resolve = function (slacking) {
 		}
 	}
 
+	// Skip the resolution if no constant has changed and solver is required to slack
 	if (systemIsSameSameButDifferent === false && slacking === true) {
 		return;
 	}
 
+	// Resolving the problem
 	this._solver.resolve();
 
 	// Refreshing variables so that their corresponding objects get updated
@@ -201,11 +204,13 @@ System.prototype.resolve = function (slacking) {
 		}
 	}
 
+	// Refreshing objective variable, if any
 	if (this._optimization === true) {
 		this._objectiveVariable.refresh();
 		this.z = (this._minimization === true) ? this._objectiveVariable._value : -this._objectiveVariable._value;
 	}
 
+	// Triggering callback if the solution has changed
 	if (solutionIsSameSameButDifferent === true) {
 		if (this._onNewSolution !== null) {
 			this._onNewSolution(this._onNewSolutionParams);
