@@ -1,6 +1,6 @@
 {
   "name": "constrained",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "JavaScript Constraint Solver with automatic variable assignment",
   "main": "index.js",
   "scripts": {
@@ -11,9 +11,6 @@
     "jshint": "~2.8.0",
     "uglifyify": "~3.0.1",
     "browserify": "~11.0.0"
-  },
-  "dependencies": {
-    "cassowary": "0.0.2"
   },
   "author": "bchevalier",
   "license": "MIT",

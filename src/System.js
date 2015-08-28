@@ -1,4 +1,4 @@
-var cassowary       = require('cassowary');
+var cassowary       = require('../deps/cassowary.js');
 var primitives      = require('./primitives.js');
 var operators       = require('./operators.js');
 var parseExpression = require('./parser.js');

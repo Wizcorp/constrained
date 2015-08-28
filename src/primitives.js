@@ -1,4 +1,4 @@
-var cassowary  = require('cassowary');
+var cassowary  = require('../deps/cassowary.js');
 var Expression = require('./Expression.js');
 
 function Numeral(value) {
