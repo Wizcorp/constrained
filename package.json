@@ -1,8 +1,8 @@
 {
   "name": "constrained",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "description": "JavaScript Constraint Solver with automatic variable assignment",
-  "main": "index.js",
+  "main": "src/index.js",
   "scripts": {
     "build": "jshint src && browserify -t uglifyify src/index.js -o build/constrained.min.js && browserify src/index.js -o build/constrained.js",
     "test": "jshint src"
