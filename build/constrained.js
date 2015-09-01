@@ -183,44 +183,56 @@ System.prototype.resolve = function (slacking) {
 	this._forceResolving = false;
 
 	// Checking whether a constant has changed
-	var constraintsToUpdate = null;
+	// var constraintsToUpdate = null;
 	for (c0 = 0; c0 < this._constants.length; c0 += 1) {
 		var constant = this._constants[c0];
 		if (constant.refresh()) {
 			// The value of the constant has changed
 
-			// At least one constraint will be updated
-			if (constraintsToUpdate === null) {
-				constraintsToUpdate = {};
-			}
+			// // At least one constraint will be updated
+			// if (constraintsToUpdate === null) {
+			// 	constraintsToUpdate = {};
+			// }
 
-			// Updating all the constraints containing the constant
-			var constraints = constant._constraints;
-			for (c1 = 0; c1 < constraints.length; c1 += 1) {
-				constraint = constraints[c1];
-				constraintsToUpdate[constraint.id] = constraint;
-			}
+			// // Updating all the constraints containing the constant
+			// var constraints = constant._constraints;
+			// for (c1 = 0; c1 < constraints.length; c1 += 1) {
+			// 	constraint = constraints[c1];
+			// 	constraintsToUpdate[constraint.id] = constraint;
+			// }
 
 			// Therefore it will need resolving
 			systemIsSameSameButDifferent = true;
 		}
 	}
 
-	// Updating constraints for which a constant has changed
-	if (constraintsToUpdate !== null) {
-		var constraintIds = Object.keys(constraintsToUpdate);
-		for (c1 = 0; c1 < constraintIds.length; c1 += 1) {
-			constraint = constraintsToUpdate[constraintIds[c1]];
-			// (Inefficient) Process to update a constraint:
-			// 1 - Remove the constraint
-			this._solver.removeConstraint(constraint._constraint);
-			// 2 - Reconstructing to consider the new constant value
-			constraint.construct();
-			// 3 - Add back the constraint
-			this._solver.addConstraint(constraint._constraint);
+	// // Updating constraints for which a constant has changed
+	// if (constraintsToUpdate !== null) {
+	// 	var constraintIds = Object.keys(constraintsToUpdate);
+	// 	for (c1 = 0; c1 < constraintIds.length; c1 += 1) {
+	// 		constraint = constraintsToUpdate[constraintIds[c1]];
+	// 		// (Inefficient) Process to update a constraint:
+	// 		// 1 - Remove the constraint
+	// 		this._solver.removeConstraint(constraint._constraint);
+	// 		// 2 - Reconstructing to consider the new constant value
+	// 		constraint.construct();
+	// 		// 3 - Add back the constraint
+	// 		this._solver.addConstraint(constraint._constraint);
 
-			// Should be:
-			// constraint.updateConstant(constant);
+	// 		// Should be:
+	// 		// constraint.updateConstant(constant);
+	// 	}
+	// }
+
+	// Reconstructing the whole problem even if only one constant has changed
+	if (systemIsSameSameButDifferent === true) {
+		this._solver = new cassowary.SimplexSolver();
+		this._solver.autoSolve = false;
+
+		var constraintIds = Object.keys(this._constraints);
+		for (c1 = 0; c1 < constraintIds.length; c1 += 1) {
+			constraint = this._constraints[constraintIds[c1]];
+			this._solver.addConstraint(constraint.construct());
 		}
 	}
 
