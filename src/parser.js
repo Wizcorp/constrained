@@ -293,7 +293,8 @@ Parser.prototype.parseNumber = function () {
 	if (t.isNextChar('.')) {
 		type = 'float';
 		res += '.';
-		t.str = t.str.substring(1);
+		// consume dot
+		t.start += 1;
 		// continue to consume decimal digits
 		while (t.isNextNumber(0) && !t.isEmpty()) {
 			res += t.buffer.str[t.start];
