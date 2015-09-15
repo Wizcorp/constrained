@@ -14,6 +14,22 @@
  * Originaly designed to parse BASIC programs
  */
 
+
+var systemOperators  = require('./operators.js');
+var systemPrimitives = require('./primitives.js');
+
+var Addition       = systemOperators.Addition;
+var Subtraction    = systemOperators.Subtraction;
+var Multiplication = systemOperators.Multiplication;
+var Division       = systemOperators.Division;
+var GreaterOrEqual = systemOperators.GreaterOrEqual;
+var LowerOrEqual   = systemOperators.LowerOrEqual;
+var Equality       = systemOperators.Equality;
+
+var Numeral = systemPrimitives.Numeral;
+ 
+//▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+
 function StringBuffer(str) {
 	this.str = str;
 }
@@ -555,7 +571,7 @@ Parser.prototype.parseExpression = function () {
 			};*/
 
 			var object = new operator.class(objects[i], objects[i+1]);
-			
+
 			objects.splice(i, 2, object);
 			operators.splice(i, 1);
 			i = 0;
