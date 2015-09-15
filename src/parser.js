@@ -563,7 +563,7 @@ Parser.prototype.parseExpression = function () {
 	// parse expression
 	var i = 0;
 	while (operators.length > 0) {
-		operator  = operators[i];
+		operator = operators[i];
 		var lookahead = operators[i+1];
 		if (!lookahead || operator.precedence >= lookahead.precedence) {
 			// reducing object[i] operator[i] object[i+1]
