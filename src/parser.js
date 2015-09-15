@@ -27,7 +27,7 @@ var LowerOrEqual   = systemOperators.LowerOrEqual;
 var Equality       = systemOperators.Equality;
 
 var Numeral = systemPrimitives.Numeral;
- 
+
 //▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 
 function StringBuffer(str) {
@@ -50,7 +50,7 @@ function parseExpression(str, parameterMap, onParameterMissing) {
 	parser.parameterMap       = parameterMap;
 	parser.onParameterMissing = onParameterMissing;
 	return parser.parseExpression();
-};
+}
 
 module.exports = parseExpression;
 
@@ -338,9 +338,9 @@ Parser.prototype.parseFunction = function (func) {
 
 	// special case: if function can have 0 or more parameters,
 	// then if we have 0 parameters, there are no parenthesis
-	if (Array.isArray(parameters) 
-		&& parameters.indexOf(0) !== -1
-		&& t.isNextChar('(')) return res;
+	if (Array.isArray(parameters) &&
+		parameters.indexOf(0) !== -1 &&
+		t.isNextChar('(')) return res;
 
 	var args = t.getParenthesisList();
 
@@ -457,6 +457,7 @@ Parser.prototype.getNextObject = function () {
 	// TODO: hexadecimal number
 
 	var isNextMinus = t.isNextChar('-');
+	var arg;
 
 	// check for unary '-' operator (not with number)
 	// if (isNextMinus && t.buffer.str[t.start + 1].search(/[0-9]/) === -1) { // TODO
@@ -465,7 +466,7 @@ Parser.prototype.getNextObject = function () {
 		t.start += 1;
 
 		// get argument
-		var arg = t.getNextObject();
+		arg = t.getNextObject();
 		// return { type: 'unaryOp', id: '-', args: [arg] };
 		return new Multiplication(new Numeral(-1), arg);
 	}
@@ -478,7 +479,7 @@ Parser.prototype.getNextObject = function () {
 			// consume operator
 			t.start += operatorId.length;
 			// get argument
-			var arg = t.getNextObject();
+			arg = t.getNextObject();
 			// return { type: 'unaryOp', id: operatorId, args: [arg] };
 			return new unaryOperators[i].class(arg);
 		}
@@ -551,9 +552,10 @@ Parser.prototype.parseExpression = function () {
 	// get all tokens
 	var objects   = [];
 	var operators = [];
+	var operator;
 	while (true) {
 		objects.push(this.getNextObject());
-		var operator = this.getNextOperator();
+		operator = this.getNextOperator();
 		if (operator === null) break;
 		operators.push(operator);
 	}
@@ -561,7 +563,7 @@ Parser.prototype.parseExpression = function () {
 	// parse expression
 	var i = 0;
 	while (operators.length > 0) {
-		var operator  = operators[i]
+		operator  = operators[i];
 		var lookahead = operators[i+1];
 		if (!lookahead || operator.precedence >= lookahead.precedence) {
 			// reducing object[i] operator[i] object[i+1]
